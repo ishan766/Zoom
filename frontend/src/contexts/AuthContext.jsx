@@ -4,95 +4,114 @@ import { createContext, useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import server from "../environment";
 
-
 export const AuthContext = createContext({});
 
 const client = axios.create({
     baseURL: `${server}/api/v1/users`
-})
-
+});
+// ensure we don't send cookies unintentionally; tokens are stored in localStorage
+client.defaults.withCredentials = false;
 
 export const AuthProvider = ({ children }) => {
-
     const authContext = useContext(AuthContext);
-
-
-    const [userData, setUserData] = useState(authContext);
-
-
+    const [userData, setUserData] = useState(() => ({
+        username: localStorage.getItem("ZOOMOOM_USER") || "",
+        name: localStorage.getItem("ZOOMOOM_NAME") || "",
+    }));
     const router = useNavigate();
 
     const handleRegister = async (name, username, password) => {
         try {
-            let request = await client.post("/register", {
-                name: name,
-                username: username,
-                password: password
-            })
-
+            const request = await client.post("/register", {
+                name,
+                username,
+                password,
+            });
 
             if (request.status === httpStatus.CREATED) {
+                const displayName = name || username || "Guest";
+                localStorage.setItem("ZOOMOOM_USER", username || "Guest");
+                localStorage.setItem("ZOOMOOM_NAME", displayName);
+                setUserData({ username: username || "Guest", name: displayName });
                 return request.data.message;
             }
         } catch (err) {
-            throw err;
+            // normalize error so callers can display meaningful messages
+            const status = err?.response?.status;
+            const message = err?.response?.data?.message || err.message || "Something went wrong";
+            const e = new Error(message);
+            e.status = status;
+            throw e;
         }
-    }
+    };
 
     const handleLogin = async (username, password) => {
         try {
-            let request = await client.post("/login", {
-                username: username,
-                password: password
+            const request = await client.post("/login", {
+                username,
+                password,
             });
 
-            console.log(username, password)
-            console.log(request.data)
-
             if (request.status === httpStatus.OK) {
+                const displayName = request.data?.name || request.data?.user?.name || username || "Guest";
                 localStorage.setItem("token", request.data.token);
-                router("/home")
+                localStorage.setItem("ZOOMOOM_USER", username || "Guest");
+                localStorage.setItem("ZOOMOOM_NAME", displayName);
+                setUserData({ username: username || "Guest", name: displayName });
+                router("/home");
+                return request.data;
             }
         } catch (err) {
             throw err;
         }
-    }
+    };
+
+    const logoutUser = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("ZOOMOOM_USER");
+        localStorage.removeItem("ZOOMOOM_NAME");
+        setUserData({ username: "", name: "" });
+        router("/auth");
+    };
 
     const getHistoryOfUser = async () => {
         try {
-            let request = await client.get("/get_all_activity", {
+            const request = await client.get("/get_all_activity", {
                 params: {
                     token: localStorage.getItem("token")
                 }
             });
-            return request.data
-        } catch
-         (err) {
+            return request.data;
+        } catch (err) {
             throw err;
         }
-    }
+    };
 
     const addToUserHistory = async (meetingCode) => {
         try {
-            let request = await client.post("/add_to_activity", {
+            const request = await client.post("/add_to_activity", {
                 token: localStorage.getItem("token"),
-                meeting_code: meetingCode
+                meeting_code: meetingCode,
             });
-            return request
+            return request;
         } catch (e) {
             throw e;
         }
-    }
-
+    };
 
     const data = {
-        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin
-    }
+        userData,
+        setUserData,
+        addToUserHistory,
+        getHistoryOfUser,
+        handleRegister,
+        handleLogin,
+        logoutUser,
+    };
 
     return (
         <AuthContext.Provider value={data}>
             {children}
         </AuthContext.Provider>
-    )
-
-}
+    );
+};
